@@ -233,9 +233,10 @@ func (iphdr *IPv4Header) PayloadLength() int {
 }
 
 func (ip *IPv4Header) String() string {
-	return strcat("IPv4 ", net.IP(ip.Source[:]).String(), "->", net.IP(ip.Destination[:]).String())
+	return strcat("IPv4 ", net.IP(ip.Source[:]).String(), " -> ", net.IP(ip.Destination[:]).String())
 }
 
+// DecodeIPv4Header decodes a 20 byte IPv4 header from buf.
 func DecodeIPv4Header(buf []byte) (iphdr IPv4Header) {
 	_ = buf[19]
 	iphdr.Version = buf[0]

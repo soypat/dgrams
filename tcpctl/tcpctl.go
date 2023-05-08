@@ -61,8 +61,10 @@ func (s *Socket) rx(hdr *dgrams.TCPHeader) {
 			return //
 		}
 		fmt.Println("SYN received!")
-
+		s.cs.rcv(hdr)
 	case StateSynRcvd:
 
+	default:
+		fmt.Println("[ERR] unhandled state transition:" + s.cs.state.String())
 	}
 }

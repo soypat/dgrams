@@ -19,9 +19,9 @@ func TestTap(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf [1504]byte
-	for {
-		iface.Write(buf[:10])
-	}
+	// for {
+	// 	iface.Write(buf[:10])
+	// }
 	for {
 		n, err := iface.Read(buf[:])
 		if err != nil {
@@ -41,9 +41,11 @@ func tcpparse(buf []byte) error {
 	}
 	eth := dgrams.DecodeEthernetHeader(buf[:])
 	if dgrams.EtherType(eth.SizeOrEtherType) != dgrams.EtherTypeIPv4 {
-		return errors.New("only support IPv4: " + eth.String())
+		return errors.New("only support IPv4")
 	}
 	ip := dgrams.DecodeIPv4Header(buf[14:])
+
+	fmt.Printf("%+v\n%q", ip, string(buf[24:]))
 	if ip.Protocol != 6 {
 		return errors.New("not TCP IPv4: " + ip.String())
 	}
