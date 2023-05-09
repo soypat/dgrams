@@ -9,6 +9,7 @@ import (
 
 	"github.com/songgao/water"
 	"github.com/soypat/dgrams"
+	"github.com/soypat/dgrams/tcpctl"
 )
 
 func TestTap(t *testing.T) {
@@ -22,15 +23,22 @@ func TestTap(t *testing.T) {
 	// for {
 	// 	iface.Write(buf[:10])
 	// }
+	sock := tcpctl.Socket{}
 	for {
 		n, err := iface.Read(buf[:])
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = tcpparse(buf[:n])
+		start, end, err := sock.RecvEthernet(buf[:n])
 		if err != nil {
-			fmt.Println("error:", err)
+			fmt.Println("[ERR] ", err)
+		} else {
+			fmt.Println("[RCV] ", string(buf[start:end]))
 		}
+		// err = tcpparse(buf[:n])
+		// if err != nil {
+		// 	fmt.Println("error:", err)
+		// }
 	}
 	_ = iface
 }

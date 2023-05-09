@@ -37,7 +37,7 @@ type connState struct {
 type sendSpace struct {
 	UNA uint32 // send unacknowledged
 	NXT uint32 // send next
-	WND uint32 // send window
+	WND uint16 // send window
 	WL1 uint32 // segment sequence number used for last window update
 	WL2 uint32 // segment acknowledgment number used for last window update
 	iss uint32 // initial send sequence number
@@ -47,12 +47,17 @@ type sendSpace struct {
 // rcvSpace contains Receive Sequence Space data.
 type rcvSpace struct {
 	NXT uint32 // receive next
-	WND uint32 // receive window
+	WND uint16 // receive window
 	irs uint32 // initial receive sequence number
 	UP  bool   // receive urgent pointer (deprecated)
 
 }
 
+func (cs *connState) SetState(state State) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	cs.state = state
+}
 func (cs *connState) State() State {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
@@ -62,11 +67,12 @@ func (cs *connState) State() State {
 func (cs *connState) frameRcv(hdr *dgrams.TCPHeader) (err error) {
 	switch {
 	case hdr.Ack <= cs.snd.UNA:
-		err = errors.New("bad ack")
+		err = errors.New("seg.ack > snd.UNA")
 	case hdr.Ack > cs.snd.NXT:
-		err = errors.New("bad ack")
+		err = errors.New("seg.ack <= snd.NXT")
 	}
 	if err != nil {
 		return err
 	}
+	return nil
 }

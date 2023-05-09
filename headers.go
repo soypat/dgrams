@@ -120,10 +120,13 @@ const (
 )
 
 const (
-	ipflagDontFrag = 0x4000
-	ipFlagMoreFrag = 0x8000
-	ipVersion4     = 0x45
-	ipProtocolTCP  = 6
+	SizeEthernetHeaderNoVLAN = 14
+	SizeIPHeader             = 20
+	SizeTCPHeaderNoOptions   = 20
+	ipflagDontFrag           = 0x4000
+	ipFlagMoreFrag           = 0x8000
+	ipVersion4               = 0x45
+	ipProtocolTCP            = 6
 )
 
 var (
@@ -337,11 +340,7 @@ func (tcphdr *TCPHeader) Put(buf []byte) {
 }
 
 func (tcphdr *TCPHeader) Offset() (tcpWords uint8) {
-	offset := uint8(tcphdr.OffsetAndFlags[0] >> (8 + 4))
-	if offset < 5 {
-		panic("bad TCP offset " + u32toa(uint32(offset)))
-	}
-	return offset
+	return uint8(tcphdr.OffsetAndFlags[0] >> (8 + 4))
 }
 
 func (tcphdr *TCPHeader) OffsetInBytes() (offsetInBytes uint16) {

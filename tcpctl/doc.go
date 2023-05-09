@@ -49,3 +49,26 @@ package tcpctl implements TCP as per RFC793 (September 1981).
 	                             +---------+                   +---------+
 */
 package tcpctl
+
+import (
+	"net"
+	"time"
+)
+
+type netdever interface {
+
+	// GetHostByName returns the IP address of either a hostname or IPv4
+	// address in standard dot notation
+	GetHostByName(name string) (net.IP, error)
+
+	// Berkely Sockets-like interface, Go-ified.  See man page for socket(2), etc.
+	Socket(domain int, stype int, protocol int) (int, error)
+	Bind(sockfd int, ip net.IP, port int) error
+	Connect(sockfd int, host string, ip net.IP, port int) error
+	Listen(sockfd int, backlog int) error
+	Accept(sockfd int, ip net.IP, port int) (int, error)
+	Send(sockfd int, buf []byte, flags int, deadline time.Time) (int, error)
+	Recv(sockfd int, buf []byte, flags int, deadline time.Time) (int, error)
+	Close(sockfd int) error
+	SetSockOpt(sockfd int, level int, opt int, value interface{}) error
+}
