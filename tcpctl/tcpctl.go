@@ -3,7 +3,9 @@ package tcpctl
 import (
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"net"
 
 	"github.com/soypat/dgrams"
 )
@@ -49,7 +51,10 @@ const (
 )
 
 type Socket struct {
-	cs connState
+	cs        connState
+	us        net.TCPAddr
+	them      net.TCPAddr
+	staticBuf [1504]byte
 }
 
 func (s *Socket) Listen() {
@@ -84,6 +89,9 @@ func (s *Socket) RecvEthernet(buf []byte) (payloadStart, payloadEnd uint16, err 
 		fmt.Printf("%+v\n%s\n", ip, ip.String())
 		return 0, 0, fmt.Errorf("expected TCP protocol (6) in IP.Proto field; got %d", ip.Protocol)
 	}
+	if ip.IHL != 5 {
+		return 0, 0, errors.New("IP header length != 5")
+	}
 	tcp := dgrams.DecodeTCPHeader(buf[dgrams.SizeEthernetHeaderNoVLAN+dgrams.SizeIPHeader:])
 	nb := tcp.OffsetInBytes()
 	if nb < 20 {
@@ -97,6 +105,14 @@ func (s *Socket) RecvEthernet(buf []byte) (payloadStart, payloadEnd uint16, err 
 	if err != nil {
 		return 0, 0, err
 	}
+	if s.cs.pendingCtlFrame == 0 {
+		return payloadStart, payloadEnd, nil
+	}
+	n, err := s.writeTCPIPv4(s.staticBuf[dgrams.SizeEthernetHeaderNoVLAN:], nil, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	fmt.Printf("[success] Wrote %d bytes: %q\n\n", n, s.staticBuf[:n+dgrams.SizeEthernetHeaderNoVLAN])
 	return payloadStart, payloadEnd, err
 }
 
@@ -105,6 +121,7 @@ func (s *Socket) rx(hdr *dgrams.TCPHeader) (err error) {
 	defer s.cs.mu.Unlock()
 	switch s.cs.state {
 	case StateClosed:
+		// Ignore packet.
 		err = errors.New("connection closed")
 	case StateListen:
 		if hdr.Flags() != dgrams.FlagTCP_SYN {
@@ -116,21 +133,84 @@ func (s *Socket) rx(hdr *dgrams.TCPHeader) (err error) {
 		s.cs.snd = sendSpace{
 			iss: iss,
 			UNA: iss,
-			NXT: iss + 1,
+			NXT: iss,
 			WND: 10,
 			// UP, WL1, WL2 defaults to zero values.
 		}
 		s.cs.rcv = rcvSpace{
 			irs: hdr.Seq,
-			NXT: hdr.Seq,
+			NXT: hdr.Seq + 1,
 			WND: hdr.WindowSize,
 		}
-		// Send ACK!
+		// We must respond with SYN|ACK frame after receiving SYN in listen state.
+		s.cs.pendingCtlFrame = dgrams.FlagTCP_ACK | dgrams.FlagTCP_SYN
+
 	case StateSynRcvd:
+		// Handle SynRcvd state.
+		s.cs.snd.UNA = hdr.Ack
 
 	default:
 		err = errors.New("[ERR] unhandled state transition:" + s.cs.state.String())
 		fmt.Println("[ERR] unhandled state transition:" + s.cs.state.String())
 	}
 	return err
+}
+
+// writeTCPIPv4 writes a TCP+IPv4 packet to dst, returning the number of bytes written.
+func (s *Socket) writeTCPIPv4(dst, tcpOpts, payload []byte) (n int, err error) {
+	if len(dst) > math.MaxUint16 {
+		return 0, errors.New("buffer too long for TCP/IP")
+	}
+	// Exclude Ethernet header and CRC in frame size.
+	payloadOffset := len(tcpOpts) + dgrams.SizeIPHeader + dgrams.SizeTCPHeaderNoOptions
+	if len(dst) < payloadOffset+len(payload) {
+		return 0, io.ErrShortBuffer
+	}
+	// Limit dst to the size of the frame.
+	dst = dst[:payloadOffset+len(payload)]
+
+	offsetBytes := len(tcpOpts) + dgrams.SizeTCPHeaderNoOptions
+	offset := offsetBytes / 4
+	if offsetBytes%4 != 0 {
+		offset++
+	}
+	if offset > 0b1111 {
+		return 0, errors.New("TCP options too large")
+	}
+	payloadOffset = dgrams.SizeIPHeader + offset*4
+	ip := dgrams.IPv4Header{
+		Version:     4,
+		IHL:         dgrams.SizeIPHeader / 4,
+		TotalLength: uint16(offsetBytes+len(payload)) + dgrams.SizeIPHeader + dgrams.SizeTCPHeaderNoOptions,
+		ID:          0,
+		Flags:       0,
+		TTL:         255,
+		Protocol:    6, // 6 == TCP.
+	}
+	copy(ip.Destination[:], s.them.IP)
+	copy(ip.Source[:], s.us.IP)
+	tcp := dgrams.TCPHeader{
+		SourcePort:      s.us.AddrPort().Port(),
+		DestinationPort: s.them.AddrPort().Port(),
+		Seq:             s.cs.snd.NXT,
+		Ack:             s.cs.rcv.NXT,
+		OffsetAndFlags:  [1]uint16{uint16(s.cs.pendingCtlFrame) | uint16(offset)<<12},
+		WindowSize:      s.cs.rcv.WND,
+		UrgentPtr:       0, // We do not implement urgent pointer.
+	}
+	// Calculate TCP checksum.
+	tcp.Checksum = tcp.CalculateChecksumIPv4(&ip, tcpOpts, payload)
+	// Copy TCP header+options and payload into buffer.
+	tcp.Put(dst[dgrams.SizeIPHeader:])
+	nopt := copy(dst[dgrams.SizeIPHeader+dgrams.SizeTCPHeaderNoOptions:payloadOffset], tcpOpts)
+	if nopt != len(tcpOpts) {
+		panic("tcp options copy failed")
+	}
+	copy(dst[payloadOffset:], payload)
+	// Calculate IP checksum and copy IP header into buffer.
+	crc := dgrams.CRC_RFC791{}
+	crc.Write(dst[dgrams.SizeIPHeader:]) // We limited dst size above.
+	ip.Checksum = crc.Sum()
+	ip.Put(dst)
+	return len(dst), nil
 }

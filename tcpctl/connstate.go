@@ -7,6 +7,9 @@ import (
 	"github.com/soypat/dgrams"
 )
 
+// connState contains the state of a TCP connection likely to change throughout
+// the connection's lifetime. This is so mutable state can be kept in one place
+// and wrapped in a mutex for safe concurrent access.
 type connState struct {
 	mu sync.Mutex
 	// # Send Sequence Space
@@ -29,26 +32,27 @@ type connState struct {
 	//	1 - old sequence numbers which have been acknowledged
 	//	2 - sequence numbers allowed for new reception
 	//	3 - future sequence numbers which are not yet allowed
-	rcv   rcvSpace
-	state State
+	rcv             rcvSpace
+	pendingCtlFrame dgrams.TCPFlags
+	state           State
 }
 
 // sendSpace contains Send Sequence Space data.
 type sendSpace struct {
+	iss uint32 // initial send sequence number, defined on our side on connection start
 	UNA uint32 // send unacknowledged
 	NXT uint32 // send next
-	WND uint16 // send window
 	WL1 uint32 // segment sequence number used for last window update
 	WL2 uint32 // segment acknowledgment number used for last window update
-	iss uint32 // initial send sequence number
+	WND uint16 // send window
 	UP  bool   // send urgent pointer (deprecated)
 }
 
 // rcvSpace contains Receive Sequence Space data.
 type rcvSpace struct {
+	irs uint32 // initial receive sequence number, defined in SYN segment received
 	NXT uint32 // receive next
 	WND uint16 // receive window
-	irs uint32 // initial receive sequence number
 	UP  bool   // receive urgent pointer (deprecated)
 
 }

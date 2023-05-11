@@ -74,14 +74,40 @@ type ARPv4Header struct {
 	ProtoTarget [4]byte // 24:28
 }
 
-// IPv4Header is the Internet Protocol header. 20 bytes in size.
+// IPv4Header is the Internet Protocol header. 20 bytes in size. Does not include options.
 type IPv4Header struct {
-	Version     uint8   // 0:1
-	IHL         uint8   // 1:2
-	TotalLength uint16  // 2:4
-	ID          uint16  // 4:6
-	Flags       IPFlags // 6:8
-	TTL         uint8   // 8:9
+	Version uint8 // 0:1
+	// Internet Header Length (IHL) The IPv4 header is variable in size due to the
+	// optional 14th field (options). The IHL field contains the size of the IPv4 header;
+	// it has 4 bits that specify the number of 32-bit words in the header.
+	//
+	// The minimum value for this field is 5, which indicates a length of
+	// 5 × 32 bits = 160 bits = 20 bytes. As a 4-bit field, the maximum value is 15;
+	// this means that the maximum size of the IPv4 header is 15 × 32 bits = 480 bits = 60 bytes.
+	IHL uint8 // 1:2
+	// This 16-bit field defines the entire packet size in bytes, including header and data.
+	// The minimum size is 20 bytes (header without data) and the maximum is 65,535 bytes.
+	// All hosts are required to be able to reassemble datagrams of size up to 576 bytes,
+	// but most modern hosts handle much larger packets.
+	//
+	// Links may impose further restrictions on the packet size, in which case datagrams
+	// must be fragmented. Fragmentation in IPv4 is performed in either the
+	// sending host or in routers. Reassembly is performed at the receiving host.
+	TotalLength uint16 // 2:4
+	// This field is an identification field and is primarily used for uniquely
+	// identifying the group of fragments of a single IP datagram.
+	ID uint16 // 4:6
+	// A three-bit field follows and is used to control or identify fragments.
+	//  - If the DF flag is set (bit 1), and fragmentation is required to route the packet, then the packet is dropped.
+	//  - For fragmented packets, all fragments except the last have the MF flag set (bit 2).
+	//  - Bit 0 is reserved and must be set to zero.
+	Flags IPFlags // 6:8
+	// An eight-bit time to live field limits a datagram's lifetime to prevent
+	// network failure in the event of a routing loop. When the datagram arrives
+	// at a router, the router decrements the TTL field by one. It is specified
+	// in seconds, but time intervals less than 1 second are rounded up to 1.
+	TTL uint8 // 8:9
+	// This field defines the protocol used in the data portion of the IP datagram. TCP is 6, UDP is 17.
 	Protocol    uint8   // 9:10
 	Checksum    uint16  // 10:12
 	Source      [4]byte // 12:16
@@ -270,6 +296,19 @@ func (iphdr *IPv4Header) Put(buf []byte) {
 	copy(buf[16:20], iphdr.Destination[:])
 }
 
+// PutPseudo marshals the pseudo-header representation of IPv4 frame onto buf.
+// buf needs to be 12 bytes in length or PutPseudo panics.
+func (iphdr *IPv4Header) PutPseudo(buf []byte) {
+	// |8 TTL |9 Proto |10 Checksum |12  Source  |16  Destination |20
+	// |set 0 |  nop   | set length | nop        | nop            |
+	_ = buf[12]
+	buf[0] = 0
+	buf[1] = iphdr.Protocol
+	binary.BigEndian.PutUint16(buf[2:], iphdr.TotalLength)
+	copy(buf[4:8], iphdr.Source[:])
+	copy(buf[8:12], iphdr.Destination[:])
+}
+
 type IPFlags uint16
 
 func (f IPFlags) DontFragment() bool     { return f&ipflagDontFrag != 0 }
@@ -373,6 +412,18 @@ func (tcphdr *TCPHeader) FrameLength(payloadLength uint16) uint16 {
 // OptionsLength returns the length of the options section
 func (tcphdr *TCPHeader) OptionsLength() uint16 {
 	return tcphdr.OffsetInBytes()*tcpWordlen - 20
+}
+
+// CalculateChecksumIPv4 calculates the checksum of the TCP header, options and payload.
+func (tcphdr *TCPHeader) CalculateChecksumIPv4(pseudoHeader *IPv4Header, tcpOptions, payload []byte) uint16 {
+	crc := CRC_RFC791{}
+	var buf [12 + 20]byte
+	pseudoHeader.PutPseudo(buf[:12])
+	tcphdr.Put(buf[12:])
+	crc.Write(buf[:])
+	crc.Write(tcpOptions)
+	crc.Write(payload)
+	return crc.Sum()
 }
 
 func (tcp *TCPHeader) String() string {
