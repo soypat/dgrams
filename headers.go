@@ -301,7 +301,7 @@ func (iphdr *IPv4Header) Put(buf []byte) {
 func (iphdr *IPv4Header) PutPseudo(buf []byte) {
 	// |8 TTL |9 Proto |10 Checksum |12  Source  |16  Destination |20
 	// |set 0 |  nop   | set length | nop        | nop            |
-	_ = buf[12]
+	_ = buf[11]
 	buf[0] = 0
 	buf[1] = iphdr.Protocol
 	binary.BigEndian.PutUint16(buf[2:], iphdr.TotalLength)

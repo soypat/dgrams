@@ -80,24 +80,33 @@ func (s *Socket) RecvEthernet(buf []byte) (payloadStart, payloadEnd uint16, err 
 	if eth.SizeOrEtherType != uint16(dgrams.EtherTypeIPv4) {
 		return 0, 0, errors.New("support only IPv4")
 	}
-	ip := dgrams.DecodeIPv4Header(buf[dgrams.SizeEthernetHeaderNoVLAN:])
-	payloadEnd = ip.TotalLength + dgrams.SizeEthernetHeaderNoVLAN
+	payloadStart, payloadEnd, err = s.RecvTCP(buf[dgrams.SizeEthernetHeaderNoVLAN:])
+	if err != nil {
+		return 0, 0, err
+	}
+	return payloadStart + dgrams.SizeEthernetHeaderNoVLAN, payloadEnd + dgrams.SizeEthernetHeaderNoVLAN, nil
+}
+
+func (s *Socket) RecvTCP(buf []byte) (payloadStart, payloadEnd uint16, err error) {
+	buflen := uint16(len(buf))
+	ip := dgrams.DecodeIPv4Header(buf[:])
+	payloadEnd = ip.TotalLength
 	if payloadEnd > buflen {
 		return 0, 0, fmt.Errorf("IP.TotalLength exceeds buffer size %d/%d", payloadEnd, buflen)
 	}
 	if ip.Protocol != 6 { // Ensure TCP protocol.
-		fmt.Printf("%+v\n%s\n", ip, ip.String())
+		// fmt.Printf("%+v\n%s\n", ip, ip.String())
 		return 0, 0, fmt.Errorf("expected TCP protocol (6) in IP.Proto field; got %d", ip.Protocol)
 	}
-	if ip.IHL != 5 {
-		return 0, 0, errors.New("IP header length != 5")
+	if ip.IHL != 0 {
+		return 0, 0, errors.New("expected IP.IHL to be zero")
 	}
-	tcp := dgrams.DecodeTCPHeader(buf[dgrams.SizeEthernetHeaderNoVLAN+dgrams.SizeIPHeader:])
+	tcp := dgrams.DecodeTCPHeader(buf[dgrams.SizeIPHeader:])
 	nb := tcp.OffsetInBytes()
 	if nb < 20 {
 		return 0, 0, errors.New("garbage TCP.Offset")
 	}
-	payloadStart = nb + dgrams.SizeEthernetHeaderNoVLAN + dgrams.SizeIPHeader
+	payloadStart = nb + dgrams.SizeIPHeader
 	if payloadStart > buflen {
 		return 0, 0, fmt.Errorf("malformed packet, got payload offset %d/%d", payloadStart, buflen)
 	}
@@ -108,11 +117,11 @@ func (s *Socket) RecvEthernet(buf []byte) (payloadStart, payloadEnd uint16, err 
 	if s.cs.pendingCtlFrame == 0 {
 		return payloadStart, payloadEnd, nil
 	}
-	n, err := s.writeTCPIPv4(s.staticBuf[dgrams.SizeEthernetHeaderNoVLAN:], nil, nil)
+	n, err := s.writeTCPIPv4(s.staticBuf[:], nil, nil)
 	if err != nil {
 		return 0, 0, err
 	}
-	fmt.Printf("[success] Wrote %d bytes: %q\n\n", n, s.staticBuf[:n+dgrams.SizeEthernetHeaderNoVLAN])
+	fmt.Printf("[success] Wrote %d bytes: %q\n\n", n, s.staticBuf[:n])
 	return payloadStart, payloadEnd, err
 }
 
