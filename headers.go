@@ -416,10 +416,13 @@ func (tcphdr *TCPHeader) OptionsLength() uint16 {
 
 // CalculateChecksumIPv4 calculates the checksum of the TCP header, options and payload.
 func (tcphdr *TCPHeader) CalculateChecksumIPv4(pseudoHeader *IPv4Header, tcpOptions, payload []byte) uint16 {
+	const sizePseudo = 12
 	crc := CRC_RFC791{}
-	var buf [12 + 20]byte
-	pseudoHeader.PutPseudo(buf[:12])
-	tcphdr.Put(buf[12:])
+	var buf [sizePseudo + 20]byte
+	pseudoHeader.PutPseudo(buf[:sizePseudo])
+	tcphdr.Put(buf[sizePseudo:])
+	// Zero out checksum field.
+	binary.BigEndian.PutUint16(buf[sizePseudo+16:sizePseudo+18], 0)
 	crc.Write(buf[:])
 	crc.Write(tcpOptions)
 	crc.Write(payload)

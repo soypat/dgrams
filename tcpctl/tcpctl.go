@@ -117,6 +117,11 @@ func (s *Socket) RecvTCP(buf []byte) (payloadStart, payloadEnd uint16, err error
 	if s.cs.pendingCtlFrame == 0 {
 		return payloadStart, payloadEnd, nil
 	}
+	tcpOptions := buf[dgrams.SizeIPHeader+dgrams.SizeTCPHeaderNoOptions : payloadStart]
+	gotSum := tcp.CalculateChecksumIPv4(&ip, tcpOptions, buf[payloadStart:payloadEnd])
+	if gotSum != tcp.Checksum {
+		fmt.Println("Checksum mismatch!")
+	}
 	n, err := s.writeTCPIPv4(s.staticBuf[:], nil, nil)
 	if err != nil {
 		return 0, 0, err

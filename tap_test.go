@@ -14,14 +14,14 @@ import (
 
 func TestTap(t *testing.T) {
 	iface, err := water.New(water.Config{
-		DeviceType: water.TUN,
+		DeviceType: water.TAP,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var buf [1504]byte
 	sock := tcpctl.Socket{}
-	go sendTCP()
+	// go sendTCP()
 	for {
 		n, err := iface.Read(buf[:])
 		if err != nil {
